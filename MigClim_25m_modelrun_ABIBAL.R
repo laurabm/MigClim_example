@@ -23,7 +23,7 @@ library(rgdal)
 ###########START HERE#####################
 setwd("") ##Set wd here
 
-######  SETTING MODEL PARAMETERS ##########
+###### 1 - SETTING MODEL PARAMETERS ##########
 MigKernel<-read.csv("./MigrationKernel.csv")
 SeedProd<-read.csv("./SeedProduction.csv")
 
@@ -110,8 +110,9 @@ LDD_uppCL_25<-ceiling(LDD_uppCL/25) #divide by 25 to match grid resolution. Roun
 LDD.prob <- integrate(F2(c(a,b)),  lower = LDD_lwrCL_25*25, upper = LDD_uppCL_25*25)$value
 
 
+####### 2 - RUN MIGCLIM ####################
 library(MigClim)
-simulName<-"ABIBAL_test_"   ###Include name of climate suitability scenario. 
+simulName<-"ABIBAL_test"   ###Include name of climate suitability scenario. 
 
   MigClim.ABIBAL<-function(iniDist, hsMap,simulName){
     N<-MigClim.migrate(iniDist=iniDist,
@@ -129,3 +130,41 @@ simulName<-"ABIBAL_test_"   ###Include name of climate suitability scenario.
   print(Sys.time())
 }      
 #}      
+
+
+###### 3 - RECLASSIFY OUTPUTS TO YEAR COLONIZED 1 to 90 ####
+##### Create year reclassification matrix ####
+env.step1<-as.data.frame(seq(100,129, by=1))
+env.step2<-as.data.frame(seq(200,229, by=1))
+env.step3<-as.data.frame(seq(300,329, by=1))
+colnames(env.step1)<-"x"
+colnames(env.step2)<-"x"
+colnames(env.step3)<-"x"
+
+year<-as.data.frame(seq(1:90))
+
+env.step11<-as.data.frame(seq(101,130, by=1))
+env.step22<-as.data.frame(seq(201,230, by=1))
+env.step33<-as.data.frame(seq(301,330, by=1))
+colnames(env.step11)<-"x"
+colnames(env.step22)<-"x"
+colnames(env.step33)<-"x"
+
+envstep<-rbind(env.step1,env.step2,env.step3)
+
+envstep1<-rbind(env.step11,env.step22,env.step33)
+rename<-cbind(envstep,envstep1,year)
+
+iniDist<-c(0,1,-998)  ###IniDist value = -998
+not.col<-c(29999,30001,NA)
+rename<-rbind(iniDist,rename,not.col)
+
+colnames(rename)<-c("start","finish","step")
+
+
+rename<-as.matrix(rename)
+
+##Reclassify raster. Add replicate number r
+spp_proj<-raster("./ABIBAL_test/ABIBAL_test1_raster.asc")
+
+proj_reclass_year<-reclassify(spp_proj, rename)   ###This is the final output
