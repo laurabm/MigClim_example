@@ -128,11 +128,9 @@ simulName<-"ABIBAL_test"   ###Include name of climate suitability scenario.
   print(Sys.time())
   try(MigClim.ABIBAL("iniDist_25","hsMap_25_",simulName))
   print(Sys.time())
-}      
-#}      
 
 
-###### 3 - RECLASSIFY OUTPUTS TO YEAR COLONIZED 1 to 90 ####
+###### 3 - OPTIONAL: RECLASSIFY OUTPUTS TO YEAR COLONIZED 1 to 90 ####
 ##### Create year reclassification matrix ####
 env.step1<-as.data.frame(seq(100,129, by=1))
 env.step2<-as.data.frame(seq(200,229, by=1))
@@ -164,7 +162,9 @@ colnames(rename)<-c("start","finish","step")
 
 rename<-as.matrix(rename)
 
-##Reclassify raster. Add replicate number r
+##Reclassify raster. Add replicate number 
 spp_proj<-raster("./ABIBAL_test/ABIBAL_test1_raster.asc")
 
 proj_reclass_year<-reclassify(spp_proj, rename)   ###This is the final output
+
+writeRaster(proj_reclass_year, "./ABIBAL_test/ABIBAL_test1_raster_reclass.tif")
