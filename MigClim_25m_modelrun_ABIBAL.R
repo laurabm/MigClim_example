@@ -1,0 +1,131 @@
+#install.packages ("MigClim", dependencies = TRUE)
+
+install.packages(c("sp","raster","rasterVis", "maptools","rgeos","rgdal"), dependencies = T)
+install.packages("https://cran.r-project.org/src/contrib/Archive/SDMTools/SDMTools_1.1-221.1.tar.gz", repo=NULL, type="source")   ###RTools needs to be installed first
+install.packages("https://cran.r-project.org/src/contrib/Archive/MigClim/MigClim_1.6.tar.gz", repo=NULL, type="source")           ###RTools needs to be installed first
+
+library(MigClim)
+library(SDMTools)
+library(sp)
+library(raster)
+library(rasterVis)
+library(maptools)
+library(rgeos)
+library(rgdal)
+
+
+############################################
+###     MigClim example script 
+### Example provided: Abies balsamea, ABIBAL
+### Initial distribution and SDM based on fictitious distribution
+############################################
+
+###########START HERE#####################
+setwd("") ##Set wd here
+
+######  SETTING MODEL PARAMETERS ##########
+MigKernel<-read.csv("./MigrationKernel.csv")
+SeedProd<-read.csv("./SeedProduction.csv")
+
+####Seed production#####
+
+iniSeed.Age = as.numeric(SeedProd[SeedProd$SpeciesCode=="ABIBAL",3])    ###From trait data, ASM
+optSeed.Age = as.numeric(SeedProd[SeedProd$SpeciesCode=="ABIBAL",4])  ###From trait data, SDOPT
+
+
+iniSeed.Age<-round(iniSeed.Age)
+
+x<-seq(0,optSeed.Age-iniSeed.Age, 1)
+
+sigmoid = function(params, x) {
+  params[1] / (1 + exp(-params[2] * (x - params[3])))
+}
+
+##ABIBAL: Slow growth
+params_shape<-as.numeric(MigClim_parameters[MigClim_parameters$SpeciesCode=="ABIBAL",5])
+ageInflection<-as.numeric(MigClim_parameters[MigClim_parameters$SpeciesCode=="ABIBAL",6])
+
+params<-c(1,params_shape,ageInflection)   ## a = max prob; b = shape (inflection point); c = nb years passed at inflection (prob=0.5) point. Use plot to check
+
+
+age.prob<-sigmoid(params,x)
+
+plot(x, sigmoid(params,x), col='blue')
+
+
+##sigmoid(params, 31)
+
+### Migration kernel ####
+ 
+###### Obtain probabilities for use in modelling ######
+F2 = function(parms)
+{
+  a = parms[1]
+  b = parms[2]
+  f2 = function(x)
+    2*a*x/b*(1 + x^2/b)^(-a-1)
+  
+  return(f2)
+}
+
+int2 = function (parms, minDist) 
+  integrate(F2(parms),  lower = minDist, upper = Inf)$value
+
+
+##### a and b are provided
+
+a = as.numeric(MigKernel[MigKernel$SpeciesCode=="ABIBAL",7])
+b = as.numeric(MigKernel[MigKernel$SpeciesCode=="ABIBAL",8])
+
+LDD_lwrCL<-as.numeric(MigKernel[MigKernel$SpeciesCode=="ABIBAL",5])  ###Model estimate for family used instead of order
+LDD_uppCL<-as.numeric(MigKernel[MigKernel$SpeciesCode=="ABIBAL",6])  ###Model estimate for family used instead of order
+
+#### Probabilities calculated for typical dispersal distances
+
+
+LDD_lwrCL_25<-floor(LDD_lwrCL/25)   #divide by 25 to match grid resolution (25m) and round down
+
+dist<-seq(0,LDD_lwrCL_25*25-1,by=25)  ### Calculate probabilities for cell up to one before LDDmin. NOTE: dist = 0, prob = probability of falling between 0 and 25m... up to dist = LDD_lwrCL25 - 1, prob = probability of falling between (LDD_lwrCL_25-1)*25 and LDD_lwrCL_25*25
+prob<-0
+
+dist.prob<-cbind(dist,prob)
+
+
+for(k in 1:length(dist.prob[,1]))
+{
+  dist.prob[k,2]<-int2(c(a,b), as.numeric(dist.prob[k,1])) 
+}
+
+View(dist.prob)
+
+disp.kernel<-dist.prob[,2]   #Extract vector of probabilities to use in modelling
+
+disp.kernel[1]<-1  ###MigClim needs a max dispersal probability of 1 (not 1.00000000...)
+
+##### Probability of LDD between set distances. LDD_lwrCL and LDD_uppCL obtained from the dispeRsal model (Tamme et al. 2014)
+
+LDD_lwrCL_25<-floor(LDD_lwrCL/25)   #divide by 25 to match grid resolution. Round down to near 25m. To be most inclusive as possible of LDD
+LDD_uppCL_25<-ceiling(LDD_uppCL/25) #divide by 25 to match grid resolution. Round up to near 25m. To be most inclusive as possible of LDD
+
+LDD.prob <- integrate(F2(c(a,b)),  lower = LDD_lwrCL_25*25, upper = LDD_uppCL_25*25)$value
+
+
+library(MigClim)
+simulName<-"ABIBAL_test_"   ###Include name of climate suitability scenario. 
+
+  MigClim.ABIBAL<-function(iniDist, hsMap,simulName){
+    N<-MigClim.migrate(iniDist=iniDist,
+                       hsMap=hsMap, rcThreshold=rc.cutoff.sp,  #rc.cutoff.sp = cutoff for climatic suitability/unsuitability. Varies between ANUCLIM and Maxent
+                       envChgSteps=3, dispSteps=30, dispKernel=disp.kernel.ABIBAL,
+                       barrier="LakesCan_25", barrierType="strong",
+                       iniMatAge=iniSeed.Age, propaguleProd=age.prob,
+                       lddFreq=LDD.prob, lddMinDist=LDD_lwrCL_25+1, lddMaxDist=LDD_uppCL_25,  #LDD_lwrCL_25+1 is to get next cell after last one in typical dispersal distance. In this case, next cell is between 275m and 300m from source 
+                       simulName=simulName, replicateNb=2, overWrite=TRUE,
+                       testMode=FALSE, fullOutput=FALSE, keepTempFiles=FALSE)
+  }
+  
+  print(Sys.time())
+  try(MigClim.ABIBAL("iniDist_25","hsMap_25_",simulName))
+  print(Sys.time())
+}      
+#}      
